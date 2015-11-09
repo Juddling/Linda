@@ -23,6 +23,7 @@ template_match(Template, Tuple, Index) ->
 
 % does the element in the template match the element in the actual tuple
 % we're using atoms to represent types
+% could add a special atom 'any' which would match any type
 template_match_element(integer, Element) ->
 	is_integer(Element);
 template_match_element(float, Element) ->
@@ -32,6 +33,8 @@ template_match_element(boolean, Element) ->
 template_match_element(Value, Element) ->
 	Value == Element.
 
+% return a tuple from a bag that matches the supplied template, if no match is found
+% return false
 fetch_tuple([], _) ->
 	false;
 fetch_tuple(Bag, Template) ->
@@ -49,8 +52,16 @@ tuple_space(Bag) ->
 		{in, Template} ->
 			% this would need to find and remove the tuple
 			% result needs to be sent to the kernel
-			io:format('tuple returned was ~w with an in from template: ~w ~n', [fetch_tuple(Bag, Template), Template]),
-			tuple_space(Bag)
+			Result = fetch_tuple(Bag, Template),
+			io:format('tuple returned was ~w with an in from template: ~w ~n', [Result, Template]),
+
+			% if we return a tuple, remove it from the bag, destructive in
+			if
+				Result == false ->
+					tuple_space(Bag);
+				true ->
+					tuple_space(lists:delete(Result, Bag))
+			end
 	end.
 
 run() ->
@@ -63,6 +74,8 @@ run() ->
 	TupleSpaceProcess ! {out, {2,1}},
 	TupleSpaceProcess ! {in, {integer}},
 	TupleSpaceProcess ! {in, {integer, 2}},
+	TupleSpaceProcess ! {in, {integer, 2}},
+	TupleSpaceProcess ! {in, {integer, integer}},
 	TupleSpaceProcess ! {in, {integer, integer}},
 	timer:sleep(500),
 
