@@ -1,10 +1,13 @@
 -module(tuple_space).
--export([out/1, in/1, start/0, stop/0]).
+-export([out/1, in/1, dump/0,
+  start/0, stop/0]).
 %% gen_server exports
 -export([init/1, code_change/3, terminate/2, handle_call/3, handle_cast/2, handle_info/2]).
 -behavior(gen_server).
 
-out(Tuple) -> gen_server:call(?MODULE, {out, Tuple}).
+dump() -> gen_server:call(?MODULE, dump).
+
+out(Tuple) -> gen_server:cast(?MODULE, {out, Tuple}).
 %%  tuple_space(Bag ++ [Tuple]).
 
 in(Template) -> gen_server:call(?MODULE, {do, an, in, with, Template}).
@@ -35,20 +38,24 @@ init([]) ->
   {ok, []}. %% should return the state, use records here
 
 
-handle_call({out, Tuple}, From, State) ->
-  io:format("out request received from '~p' with current state '~p'~n",[From, State]),
-  {noreply, State++[Tuple]};
+%% handle synchronous requests with handle_call()
+handle_call(dump, From, State) ->
+  io:format("dump request received from '~p' with current state '~p'~n",[From, State]),
+  {reply, ok, State};
 handle_call(Message, From, State) ->
   io:format("Generic call handler: '~p' from '~p' with current state '~p'~n",[Message, From, State]),
-  {reply,ok,State}.
+  {reply, ok, State}.
+
+%% handle asynchronous requests with handle_cast
+handle_cast({out, Tuple}, State) ->
+  io:format("tuple: '~p' has been outed~n",[Tuple]),
+  {noreply, State++[Tuple]}.
 
 terminate(Reason, State) -> ok.
 
 code_change(OldVsn, State, Extra) -> {ok, State}.
 
 handle_info(Info, State) -> ok.
-
-handle_cast(Request, State) -> ok.
 
 %% PRIVATE FUNCTIONS
 
