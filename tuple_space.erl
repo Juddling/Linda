@@ -1,5 +1,5 @@
 -module(tuple_space).
--export([out/1, in/1, dump/0,
+-export([out/1, in/1, dump/0, release/0,
   start/0, stop/0]).
 %% gen_server exports
 -export([init/1, code_change/3, terminate/2, handle_call/3, handle_cast/2, handle_info/2]).
@@ -7,12 +7,18 @@
 
 -record(state, {tuples, clients}).
 
-dump() -> gen_server:call(?MODULE, dump).
+dump() ->
+  gen_server:call({global, ?MODULE}, dump).
 
-out(Tuple) -> gen_server:cast(?MODULE, {out, Tuple}).
+release() ->
+  gen_server:cast({global, ?MODULE}, release).
+
+out(Tuple) ->
+  gen_server:cast({global, ?MODULE}, {out, Tuple}).
 %%  tuple_space(Bag ++ [Tuple]).
 
-in(Template) -> gen_server:call(?MODULE, {in, Template}).
+in(Template) ->
+  gen_server:call({global, ?MODULE}, {in, Template}, infinity).
 %%  % result needs to be sent to the kernel
 %%  Result = fetch_tuple(Bag, Template),
 %%  io:format('tuple returned was ~w with an in from template: ~w ~n', [Result, Template]),
@@ -31,10 +37,10 @@ start() ->
   %% this will call init()
   %% returns: {ok, <process_id>}
   %% If ServerName={local,Name} the gen_server is registered locally as Name
-  gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+  gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 stop() ->
-  gen_server:stop(?MODULE).
+  gen_server:stop({global, ?MODULE}).
 
 init([]) ->
   {ok, #state{tuples = [], clients = []}}.
@@ -52,7 +58,11 @@ handle_call(Message, From, State) ->
 %% handle asynchronous requests with handle_cast
 handle_cast({out, Tuple}, State=#state{tuples = Tuples}) ->
   io:format("tuple: '~p' has been outed~n",[Tuple]),
-  {noreply, State#state{tuples = Tuples ++ [Tuple]}}.
+  {noreply, State#state{tuples = Tuples ++ [Tuple]}};
+
+%% reply to blocked processes
+handle_cast(release, State=#state{clients = Clients}) ->
+  gen_server:reply(hd(Clients), debug_reply).
 
 terminate(Reason, State) -> ok.
 
