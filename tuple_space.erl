@@ -46,9 +46,9 @@ init([]) ->
   {ok, #state{tuples = [], clients = []}}.
 
 %% handle synchronous requests with handle_call()
-handle_call(dump, From, State) ->
-  io:format("dump request received from '~p' with current state '~p'~n",[From, State]),
-  {reply, ok, State};
+handle_call(dump, From, State=#state{tuples = Tuples}) ->
+%%  io:format("dump request received from '~p' with current state '~p'~n",[From, State]),
+  {reply, Tuples, State};
 handle_call({in, Template}, From, State=#state{clients = Clients}) ->
   {noreply, State#state{clients = Clients ++ [From]}};
 handle_call(Message, From, State) ->
@@ -62,7 +62,8 @@ handle_cast({out, Tuple}, State=#state{tuples = Tuples}) ->
 
 %% reply to blocked processes
 handle_cast(release, State=#state{clients = Clients}) ->
-  gen_server:reply(hd(Clients), debug_reply).
+  gen_server:reply(hd(Clients), debug_reply),
+  {noreply, State}.
 
 terminate(Reason, State) -> ok.
 
