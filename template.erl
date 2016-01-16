@@ -1,4 +1,5 @@
 -module(template).
+-export([fetch_tuple/2, template_match/2]).
 
 %% PRIVATE FUNCTIONS
 
