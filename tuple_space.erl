@@ -46,7 +46,7 @@ init([]) ->
   {ok, #state{tuples = [], clients = []}}.
 
 %% handle synchronous requests with handle_call()
-handle_call(dump, From, State=#state{tuples = Tuples}) ->
+handle_call(dump, _From, State=#state{tuples = Tuples}) ->
 %%  io:format("dump request received from '~p' with current state '~p'~n",[From, State]),
   {reply, Tuples, State};
 handle_call({in, Template}, From, State=#state{clients = Clients}) ->
@@ -58,15 +58,21 @@ handle_call(Message, From, State) ->
 %% handle asynchronous requests with handle_cast
 handle_cast({out, Tuple}, State=#state{tuples = Tuples}) ->
   io:format("tuple: '~p' has been outed~n",[Tuple]),
+  %% maybe shouldn't append to the end of the list for efficiency
   {noreply, State#state{tuples = Tuples ++ [Tuple]}};
 
-%% reply to blocked processes
+%% DEBUG function to release blocked processes
+%% reply to the first blocked process, and then remove
+%% the client from the state
+handle_cast(release, State=#state{clients = []}) ->
+  {noreply, State};
+
 handle_cast(release, State=#state{clients = Clients}) ->
   gen_server:reply(hd(Clients), debug_reply),
-  {noreply, State}.
+  {noreply, State#state{clients = tl(Clients)}}.
 
-terminate(Reason, State) -> ok.
+terminate(_Reason, _State) -> ok.
 
-code_change(OldVsn, State, Extra) -> {ok, State}.
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
-handle_info(Info, State) -> ok.
+handle_info(_Info, _State) -> ok.
