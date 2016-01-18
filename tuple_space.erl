@@ -6,7 +6,7 @@
 -behavior(gen_server).
 
 -record(state, {tuples, in_requests}).
--record(in_request, {client, template}).
+-record(in_request, {client, template, destructive = true}).
 
 dump() ->
   gen_server:call({global, ?MODULE}, dump).
@@ -41,29 +41,39 @@ init([]) ->
 reply_blocked_clients([InReq | Tail], NewTuple) ->
   Result = template:template_match(InReq#in_request.template, NewTuple),
 
-  if
-    Result /= false ->
-      gen_server:reply(InReq#in_request.client, NewTuple);
-    true -> ok
-  end,
-
-  % recurse through the rest of the in requests
-  reply_blocked_clients(Tail, NewTuple);
+  case Result of
+    false ->
+      % recurse through the rest of the in requests
+      reply_blocked_clients(Tail, NewTuple);
+    _ ->
+      gen_server:reply(InReq#in_request.client, NewTuple),
+      {match, InReq}
+  end;
 reply_blocked_clients([], _) ->
-  ok.
+  {no_match}.
 
 %% @doc DEBUG function to show current stored tuples
 handle_call(dump, _From, State = #state{tuples = Tuples}) ->
   {reply, Tuples, State};
+handle_call({read, Template}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
+  Result = template:fetch_tuple(Tuples, Template),
+  if
+    Result == false ->
+      % if a matching tuple isn't found, store this in request
+      InRequest = #in_request{client = From, template = Template, destructive = false},
+      {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
+    true ->
+      {reply, Result, State}
+  end;
 handle_call({in, Template}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
   Result = template:fetch_tuple(Tuples, Template),
   if
     Result == false ->
       % if a matching tuple isn't found, store this in request
-      InRequest = #in_request{client = From, template = Template},
+      InRequest = #in_request{client = From, template = Template, destructive = true},
       {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
     true ->
-      {reply, Result, State}
+      {reply, Result, State#state{tuples = lists:delete(Result, Tuples)}}
   end;
 handle_call(Message, From, State) ->
   io:format("Generic call handler: '~p' from '~p' with current state '~p'~n", [Message, From, State]),
@@ -71,9 +81,22 @@ handle_call(Message, From, State) ->
 
 handle_cast({out, Tuple}, State = #state{tuples = Tuples, in_requests = InRequests}) ->
   io:format("tuple: '~p' has been outed~n", [Tuple]),
-  reply_blocked_clients(InRequests, Tuple),
-  % maybe shouldn't append to the end of the list for efficiency
-  {noreply, State#state{tuples = Tuples ++ [Tuple]}};
+
+  case reply_blocked_clients(InRequests, Tuple) of
+    {match, InRequest} ->
+      % this tuple matched a template that had already been requested
+      % remove the in request and remove the tuple if the request was destructive
+
+      NewTuples = case InRequest#in_request.destructive of
+                    true  -> Tuples;
+                    _     -> Tuples ++ [Tuple]
+                  end,
+
+      {noreply, State#state{in_requests = lists:delete(InRequest, InRequests), tuples = NewTuples}};
+    {nomatch} ->
+      % maybe shouldn't append to the end of the list for efficiency
+      {noreply, State#state{tuples = Tuples ++ [Tuple]}}
+  end;
 
 %% @doc DEBUG function to release blocked processes
 %% reply to the first blocked process, and then remove
