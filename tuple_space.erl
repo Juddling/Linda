@@ -14,11 +14,15 @@ dump() ->
 release() ->
   gen_server:cast({global, ?MODULE}, release).
 
-out(Tuple) ->
+%% @doc add a tuple to the space
+out(Tuple) when is_tuple(Tuple) ->
   gen_server:cast({global, ?MODULE}, {out, Tuple}).
 
-in(Template) ->
+in(Template) when is_tuple(Template) ->
   gen_server:call({global, ?MODULE}, {in, Template}, infinity).
+
+rd(Template) when is_tuple(Template) ->
+  gen_server:call({global, ?MODULE}, {read, Template}, infinity).
 
 % gen_server functions
 start() ->
@@ -50,7 +54,7 @@ reply_blocked_clients([InReq | Tail], NewTuple) ->
       {match, InReq}
   end;
 reply_blocked_clients([], _) ->
-  {no_match}.
+  {nomatch}.
 
 %% @doc DEBUG function to show current stored tuples
 handle_call(dump, _From, State = #state{tuples = Tuples}) ->
@@ -63,6 +67,7 @@ handle_call({read, Template}, From, State = #state{in_requests = InReqs, tuples 
       InRequest = #in_request{client = From, template = Template, destructive = false},
       {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
     true ->
+      % don't touch the state, non-destructive
       {reply, Result, State}
   end;
 handle_call({in, Template}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
@@ -73,6 +78,7 @@ handle_call({in, Template}, From, State = #state{in_requests = InReqs, tuples = 
       InRequest = #in_request{client = From, template = Template, destructive = true},
       {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
     true ->
+      % remove the tuple from the space
       {reply, Result, State#state{tuples = lists:delete(Result, Tuples)}}
   end;
 handle_call(Message, From, State) ->
