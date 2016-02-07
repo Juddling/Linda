@@ -1,6 +1,6 @@
 -module(tuple_space).
--export([out/1, in/1, dump/0, release/0,
-  start/0, stop/0]).
+-export([out/2, in/2, rd/2, dump/1, release/1, size/1,
+  start/1, stop/1]).
 % gen_server exports
 -export([init/1, code_change/3, terminate/2, handle_call/3, handle_cast/2, handle_info/2]).
 -behavior(gen_server).
@@ -8,31 +8,34 @@
 -record(state, {tuples, in_requests}).
 -record(in_request, {client, template, destructive = true}).
 
-dump() ->
-  gen_server:call({global, ?MODULE}, dump).
+dump(Name) ->
+  gen_server:call({global, Name}, dump).
 
-release() ->
-  gen_server:cast({global, ?MODULE}, release).
+release(Name) ->
+  gen_server:cast({global, Name}, release).
+
+size(Name) ->
+  gen_server:call({global, Name}, size).
 
 %% @doc add a tuple to the space
-out(Tuple) when is_tuple(Tuple) ->
-  gen_server:cast({global, ?MODULE}, {out, Tuple}).
+out(Name, Tuple) when is_tuple(Tuple) ->
+  gen_server:cast({global, Name}, {out, Tuple}).
 
-in(Template) when is_tuple(Template) ->
-  gen_server:call({global, ?MODULE}, {in, Template}, infinity).
+in(Name, Template) when is_tuple(Template) ->
+  gen_server:call({global, Name}, {in, Template}, infinity).
 
-rd(Template) when is_tuple(Template) ->
-  gen_server:call({global, ?MODULE}, {read, Template}, infinity).
+rd(Name, Template) when is_tuple(Template) ->
+  gen_server:call({global, Name}, {read, Template}, infinity).
 
 % gen_server functions
-start() ->
+start(Name) ->
   % this will call init()
   % returns: {ok, <process_id>}
   % server's name is registered globally
-  gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
+  gen_server:start_link({global, Name}, ?MODULE, [], []).
 
-stop() ->
-  gen_server:stop({global, ?MODULE}).
+stop(Name) ->
+  gen_server:stop({global, Name}).
 
 init([]) ->
   {ok, #state{tuples = [], in_requests = []}}.
@@ -56,6 +59,8 @@ reply_blocked_clients([InReq | Tail], NewTuple) ->
 reply_blocked_clients([], _) ->
   {nomatch}.
 
+handle_call(size, _From, State = #state{tuples = Tuples}) ->
+  {reply, length(Tuples), State};
 %% @doc DEBUG function to show current stored tuples
 handle_call(dump, _From, State = #state{tuples = Tuples}) ->
   {reply, Tuples, State};
