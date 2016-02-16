@@ -91,7 +91,7 @@ handle_call(Message, From, State) ->
   {reply, ok, State}.
 
 handle_cast({out, Tuple}, State = #state{tuples = Tuples, in_requests = InRequests}) ->
-  io:format("tuple: '~p' has been outed~n", [Tuple]),
+  %% io:format("tuple: '~p' has been outed~n", [Tuple]),
 
   case reply_blocked_clients(InRequests, Tuple) of
     {match, InRequest} ->

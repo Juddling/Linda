@@ -22,7 +22,7 @@ execute(Workers, Pid) when is_pid(Pid) ->
 
 init() ->
   N = 10,
-  _ = linda_kernel:create_ts(?ADDITION_TS),
+  _ = linda_kernel:create_ts(?ADDITION_TS, self()),
   self() ! "init",
   lists:map(fun(X) -> tuple_space:out(?ADDITION_TS, {X}) end, lists:seq(1, N)),
   spawn(?MODULE, supervisor, [N, self()]).
