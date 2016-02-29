@@ -27,7 +27,8 @@ remove_ts(Name) ->
   tuple_space:stop(Name).
 
 in(Name, Template) when is_tuple(Template) ->
-  case is_deadlock(Name, self()) of
+  io:format("in request received~n"),
+  case is_deadlock(Name) of
     true ->
       erlang:error(deadlock);
     false ->
@@ -48,10 +49,7 @@ dump(Name) ->
 
 %% process creation
 spawn(TupleSpaceName, Fun) ->
-  {Pid, Ref} = spawn_monitor(Fun),
-  add_ref(Ref),
-  add_process_to_tuple_space(Pid, TupleSpaceName),
-  Pid.
+  gen_server:call(server_identifier(), {spawn, Fun, TupleSpaceName}).
 
 %%spawn(Module, Function, List) ->
 %%  %% store pid for any handle in the list
@@ -59,15 +57,15 @@ spawn(TupleSpaceName, Fun) ->
 %%  add_ref(Ref),
 %%  Pid.
 
-add_ref(Ref) ->
-  gen_server:cast({global, ?MODULE}, {add_ref, Ref}).
-
-add_process_to_tuple_space(Pid, TupleSpace) ->
-  gen_server:cast({global, ?MODULE}, {add_process, Pid, TupleSpace}).
-
 process_down(State = #state{refs = Refs}, Ref, Pid) ->
-  io:format("Process ~p went down", [Pid]),
+  io:format("reference removed to ~p~n", [Pid]),
   {noreply, State#state{refs = gb_sets:delete(Ref, Refs)}}.
+
+%% deadlock detection
+is_deadlock(TupleSpaceName) ->
+  gen_server:call(server_identifier(), {is_deadlock, TupleSpaceName}).
+
+server_identifier() -> {global, ?MODULE}.
 
 %% gen_server functions
 init(_Args) ->
@@ -75,26 +73,41 @@ init(_Args) ->
 
 handle_call({create, Name, From}, _From, State = #state{tuple_spaces = TupleSpaces}) ->
   {ok, Pid} = tuple_space:start(Name),
-  io:format("create call received from : ~p", [From]),
+  io:format("create call received from : ~p, and handled by ~p ~n", [From, self()]),
   {reply, Pid, State#state{tuple_spaces = dict:append(Name, From, TupleSpaces)}};
 
-handle_call(get_state, _From, State) ->
-  {reply, State, State};
+%% deadlock detection
+handle_call({is_deadlock, TupleSpaceName}, From, State = #state{tuple_spaces = TupleSpaceDict}) ->
+  % dict:fetch assumes key is present in the dictionary
+  Processes = dict:fetch(TupleSpaceName, TupleSpaceDict),
 
-handle_call(set_state, _From, _OldState) ->
+  NewTSDict = dict:store(TupleSpaceName, lists:delete(From, Processes), TupleSpaceDict),
 
+  ProcessCount = length(Processes),
+
+  io:format("checking for deadlock, process count: ~p~n", [ProcessCount]),
+
+  IsDeadlock = case ProcessCount of
+    % two processes, one has been removed
+    1 ->
+      true;
+    _ ->
+      false
+  end,
+
+  {reply, IsDeadlock, State#state{tuple_spaces = NewTSDict}};
+
+%% erlang monitors return a reference, we store this reference
+%% in the linda kernel's state
+handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs, tuple_spaces = TupleSpaces}) ->
+  {Pid, Ref} = spawn_monitor(Fun),
+  io:format("new process being made by process ~p~n", [self()]),
+  io:format("new process ~p added to TS: ~p~n", [Pid, TSName]),
+  {reply, Pid, State#state{tuple_spaces = dict:append(TSName, Pid, TupleSpaces), refs = gb_sets:add(Ref, Refs)}};
 
 handle_call(_, _From, State) ->
   io:format("unsupported synchronous request~n"),
   {reply, unsupported, State}.
-
-%% erlang monitors return a reference, we store this reference
-%% in the linda kernel's state
-handle_cast({add_ref, Ref}, State = #state{refs = Refs}) ->
-  {noreply, State#state{refs = gb_sets:add(Ref, Refs)}};
-
-handle_cast({add_process, Pid, TS}, State = #state{tuple_spaces = TupleSpaces}) ->
-  {noreply, State#state{tuple_spaces = dict:append(TS, Pid, TupleSpaces)}};
 
 handle_cast(_, State) ->
   io:format("unsupported asynchronous request~n"),
@@ -106,6 +119,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% DOWN message received when monitored process terminates
 handle_info({'DOWN', Ref, process, Pid, _}, State = #state{refs = Refs}) ->
+  io:format("process ~p has terminated~n", [Pid]),
   % check we're monitoring this process
   case gb_sets:is_element(Ref, Refs) of
     true ->
@@ -115,28 +129,3 @@ handle_info({'DOWN', Ref, process, Pid, _}, State = #state{refs = Refs}) ->
   end;
 
 handle_info(_Info, _State) -> ok.
-
-%% deadlock detection
-is_deadlock(TupleSpaceName, From) ->
-  State = get_kernel_state(),
-
-  TupleSpaceDict = State#state.tuple_spaces,
-
-  % dict:fetch assumes key is present in the dictionary
-  Processes = dict:fetch(TupleSpaceName, TupleSpaceDict),
-
-  NewTSDict = dict:store(TupleSpaceName, lists:delete(From, Processes), TupleSpaceDict),
-
-  case length(Processes) of
-    % two processes, one has been removed
-    2 ->
-      true;
-    _ ->
-      false
-  end.
-
-get_kernel_state() ->
-  gen_server:call({global, ?MODULE}, get_state).
-
-set_kernel_state(State) ->
-  gen_server:call({global, ?MODULE}, {set_state, State}).
