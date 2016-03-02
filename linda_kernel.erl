@@ -1,6 +1,6 @@
 -module(linda_kernel).
 
--export([start/0,
+-export([start/0, stop/0,
   create_ts/2, remove_ts/1,
   in/2, out/2, rd/2,
   size/1, dump/1,
@@ -15,11 +15,18 @@
 
 %% consider using gb_sets as the data structure, or orddict?
 
+server_identifier() -> {global, ?MODULE}.
+
 start() ->
-  gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
+  gen_server:start_link(server_identifier(), ?MODULE, [], []).
+
+stop() ->
+  % is this enough?, should we go through and kill all tuple spaces that
+  % we are aware of
+  gen_server:stop(server_identifier()).
 
 create_ts(Name, From) ->
-  Pid = gen_server:call({global, ?MODULE}, {create, Name, From}),
+  Pid = gen_server:call(server_identifier(), {create, Name, From}),
   Pid.
 
 remove_ts(Name) ->
@@ -57,15 +64,29 @@ spawn(TupleSpaceName, Fun) ->
 %%  add_ref(Ref),
 %%  Pid.
 
-process_down(State = #state{refs = Refs}, Ref, Pid) ->
-  io:format("reference removed to ~p~n", [Pid]),
-  {noreply, State#state{refs = gb_sets:delete(Ref, Refs)}}.
+process_down(State = #state{refs = Refs, tuple_spaces = TSs}, Ref, Pid) ->
+  % tuple spaces that this process was aware of could now be garbage
+  % kernel must tell these spaces to evaluate themselves
+  NewTSState = dict:map(fun(TSName, Processes) ->
+    Size = length(Processes),
+    NewList = lists:delete(Pid, Processes),
+
+    _ = if
+      length(NewList) < Size ->
+        % ask the TS to evaluate itself
+        gen_server:call({global, TSName}, {detect, NewList});
+      true -> ok
+    end,
+
+    NewList
+    end, TSs),
+
+  {noreply, State#state{refs = gb_sets:delete(Ref, Refs), tuple_spaces = NewTSState}}.
 
 %% deadlock detection
 is_deadlock(TupleSpaceName) ->
-  gen_server:call(server_identifier(), {is_deadlock, TupleSpaceName}).
-
-server_identifier() -> {global, ?MODULE}.
+  false.
+%%  gen_server:call(server_identifier(), {is_deadlock, TupleSpaceName}).
 
 %% gen_server functions
 init(_Args) ->
@@ -77,25 +98,25 @@ handle_call({create, Name, From}, _From, State = #state{tuple_spaces = TupleSpac
   {reply, Pid, State#state{tuple_spaces = dict:append(Name, From, TupleSpaces)}};
 
 %% deadlock detection
-handle_call({is_deadlock, TupleSpaceName}, From, State = #state{tuple_spaces = TupleSpaceDict}) ->
-  % dict:fetch assumes key is present in the dictionary
-  Processes = dict:fetch(TupleSpaceName, TupleSpaceDict),
-
-  NewTSDict = dict:store(TupleSpaceName, lists:delete(From, Processes), TupleSpaceDict),
-
-  ProcessCount = length(Processes),
-
-  io:format("checking for deadlock, process count: ~p~n", [ProcessCount]),
-
-  IsDeadlock = case ProcessCount of
-    % two processes, one has been removed
-    1 ->
-      true;
-    _ ->
-      false
-  end,
-
-  {reply, IsDeadlock, State#state{tuple_spaces = NewTSDict}};
+%%handle_call({is_deadlock, TupleSpaceName}, From, State = #state{tuple_spaces = TupleSpaceDict}) ->
+%%  % dict:fetch assumes key is present in the dictionary
+%%  Processes = dict:fetch(TupleSpaceName, TupleSpaceDict),
+%%
+%%  NewTSDict = dict:store(TupleSpaceName, lists:delete(From, Processes), TupleSpaceDict),
+%%
+%%  ProcessCount = length(Processes),
+%%
+%%  io:format("checking for deadlock, process count: ~p~n", [ProcessCount]),
+%%
+%%  IsDeadlock = case ProcessCount of
+%%    % two processes, one has been removed
+%%    1 ->
+%%      true;
+%%    _ ->
+%%      false
+%%  end,
+%%
+%%  {reply, IsDeadlock, State#state{tuple_spaces = NewTSDict}};
 
 %% erlang monitors return a reference, we store this reference
 %% in the linda kernel's state
@@ -103,6 +124,7 @@ handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs, tuple_space
   {Pid, Ref} = spawn_monitor(Fun),
   io:format("new process being made by process ~p~n", [self()]),
   io:format("new process ~p added to TS: ~p~n", [Pid, TSName]),
+  % append to tuple space dict adds knowledge of which processes know about which TS
   {reply, Pid, State#state{tuple_spaces = dict:append(TSName, Pid, TupleSpaces), refs = gb_sets:add(Ref, Refs)}};
 
 handle_call(_, _From, State) ->

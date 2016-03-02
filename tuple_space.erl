@@ -59,6 +59,35 @@ reply_blocked_clients([InReq | Tail], NewTuple) ->
 reply_blocked_clients([], _) ->
   {nomatch}.
 
+%% inform blocked clients when there is a deadlock
+reply_deadlock([InReq | Tail]) ->
+  gen_server:reply(InReq#in_request.client, deadlock),
+  reply_deadlock(Tail);
+reply_deadlock([]) ->
+  ok.
+
+%% this will be a call from the kernel, which will happen after
+%% a process has died,
+handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs}) ->
+  %% strip templates and extra info stored in an inrequest
+  io:format("checking status of tuple space..."),
+  ClientsBlocked = lists:map(fun (Req) -> Req#in_request.client end, InReqs),
+  case deadlock:status(ClientsAware, ClientsBlocked) of
+    garbage ->
+      io:format("GARBAGE~n"),
+      {reply, garbage, State};
+    deadlock ->
+      io:format("DEADLOCK~n"),
+
+      % inform all clients there is a deadlock
+      reply_deadlock(InReqs),
+
+      % all clients cleared, tuples remain in the space, TS lives on
+      {reply, deadlock, State#state{in_requests = []}};
+    _ ->
+      io:format("OK~n"),
+      {reply, ok, State}
+  end;
 handle_call(size, _From, State = #state{tuples = Tuples}) ->
   {reply, length(Tuples), State};
 %% @doc DEBUG function to show current stored tuples
