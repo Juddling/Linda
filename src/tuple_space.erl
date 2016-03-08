@@ -8,34 +8,37 @@
 -record(state, {tuples, in_requests}).
 -record(in_request, {client, template, destructive = true}).
 
+server_identifier(Name) ->
+  {global, Name}.
+
 dump(Name) ->
-  gen_server:call({global, Name}, dump).
+  gen_server:call(server_identifier(Name), dump).
 
 release(Name) ->
-  gen_server:cast({global, Name}, release).
+  gen_server:cast(server_identifier(Name), release).
 
 size(Name) ->
-  gen_server:call({global, Name}, size).
+  gen_server:call(server_identifier(Name), size).
 
 %% @doc add a tuple to the space
 out(Name, Tuple) when is_tuple(Tuple) ->
-  gen_server:cast({global, Name}, {out, Tuple}).
+  gen_server:cast(server_identifier(Name), {out, Tuple}).
 
 in(Name, Template) when is_tuple(Template) ->
-  gen_server:call({global, Name}, {in, Template}, infinity).
+  gen_server:call(server_identifier(Name), {read, Template, true}, infinity).
 
 rd(Name, Template) when is_tuple(Template) ->
-  gen_server:call({global, Name}, {read, Template}, infinity).
+  gen_server:call(server_identifier(Name), {read, Template, false}, infinity).
 
 % gen_server functions
 start(Name) ->
   % this will call init()
   % returns: {ok, <process_id>}
   % server's name is registered globally
-  gen_server:start_link({global, Name}, ?MODULE, [], []).
+  gen_server:start_link(server_identifier(Name), ?MODULE, [], []).
 
 stop(Name) ->
-  gen_server:stop({global, Name}).
+  gen_server:stop(server_identifier(Name)).
 
 init([]) ->
   {ok, #state{tuples = [], in_requests = []}}.
@@ -66,12 +69,15 @@ reply_deadlock([InReq | Tail]) ->
 reply_deadlock([]) ->
   ok.
 
+blocked_clients(InRequests) ->
+  lists:map(fun (Req) -> Req#in_request.client end, InRequests).
+
 %% this will be a call from the kernel, which will happen after
 %% a process has died,
 handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs}) ->
   %% strip templates and extra info stored in an inrequest
   io:format("checking status of tuple space..."),
-  ClientsBlocked = lists:map(fun (Req) -> Req#in_request.client end, InReqs),
+  ClientsBlocked = blocked_clients(InReqs),
   case deadlock:status(ClientsAware, ClientsBlocked) of
     garbage ->
       io:format("GARBAGE~n"),
@@ -93,27 +99,21 @@ handle_call(size, _From, State = #state{tuples = Tuples}) ->
 %% @doc DEBUG function to show current stored tuples
 handle_call(dump, _From, State = #state{tuples = Tuples}) ->
   {reply, Tuples, State};
-handle_call({read, Template}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
+handle_call({read, Template, IsDestructive}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
   Result = template:fetch_tuple(Tuples, Template),
   if
     Result == false ->
       % if a matching tuple isn't found, store this in request
-      InRequest = #in_request{client = From, template = Template, destructive = false},
+      InRequest = #in_request{client = From, template = Template, destructive = IsDestructive},
       {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
     true ->
-      % don't touch the state, non-destructive
-      {reply, Result, State}
-  end;
-handle_call({in, Template}, From, State = #state{in_requests = InReqs, tuples = Tuples}) ->
-  Result = template:fetch_tuple(Tuples, Template),
-  if
-    Result == false ->
-      % if a matching tuple isn't found, store this in request
-      InRequest = #in_request{client = From, template = Template, destructive = true},
-      {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
-    true ->
-      % remove the tuple from the space
-      {reply, Result, State#state{tuples = lists:delete(Result, Tuples)}}
+      case IsDestructive of
+        true ->
+          % remove the tuple from state if it is destructive read
+          {reply, Result, State#state{tuples = lists:delete(Result, Tuples)}};
+        false ->
+          {reply, Result, State}
+      end
   end;
 handle_call(Message, From, State) ->
   io:format("Generic call handler: '~p' from '~p' with current state '~p'~n", [Message, From, State]),
