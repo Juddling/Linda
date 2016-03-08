@@ -70,7 +70,8 @@ reply_deadlock([]) ->
   ok.
 
 blocked_clients(InRequests) ->
-  lists:map(fun (Req) -> Req#in_request.client end, InRequests).
+  lists:map(fun(Req) -> Req#in_request.client end, InRequests).
+
 
 %% this will be a call from the kernel, which will happen after
 %% a process has died,
@@ -78,22 +79,14 @@ handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs})
   %% strip templates and extra info stored in an inrequest
   io:format("checking status of tuple space..."),
   ClientsBlocked = blocked_clients(InReqs),
-  case deadlock:status(ClientsAware, ClientsBlocked) of
-    garbage ->
-      io:format("GARBAGE~n"),
-      {reply, garbage, State};
-    deadlock ->
-      io:format("DEADLOCK~n"),
+  {reply, deadlock:status(ClientsAware, ClientsBlocked), State};
+%% Kernel is informing this tuple space that it is deadlocked
+handle_call(deadlock, _From, State) ->
+  % inform all clients there is a deadlock
+  reply_deadlock(State#state.in_requests),
 
-      % inform all clients there is a deadlock
-      reply_deadlock(InReqs),
-
-      % all clients cleared, tuples remain in the space, TS lives on
-      {reply, deadlock, State#state{in_requests = []}};
-    _ ->
-      io:format("OK~n"),
-      {reply, ok, State}
-  end;
+  % all clients cleared, tuples remain in the space, TS lives on
+  {reply, deadlock, State#state{in_requests = []}};
 handle_call(size, _From, State = #state{tuples = Tuples}) ->
   {reply, length(Tuples), State};
 %% @doc DEBUG function to show current stored tuples
@@ -128,8 +121,8 @@ handle_cast({out, Tuple}, State = #state{tuples = Tuples, in_requests = InReques
       % remove the in request and remove the tuple if the request was destructive
 
       NewTuples = case InRequest#in_request.destructive of
-                    true  -> Tuples;
-                    _     -> Tuples ++ [Tuple]
+                    true -> Tuples;
+                    _ -> Tuples ++ [Tuple]
                   end,
 
       {noreply, State#state{in_requests = lists:delete(InRequest, InRequests), tuples = NewTuples}};

@@ -10,13 +10,13 @@ status(ClientsAware, ClientsBlocked) ->
 
   case {length(ClientsAware), length(ClientsBlocked)} of
     {0, 0} ->
-      % no one is aware of the TS, so it is garbage
-      garbage;
+      % no one is aware of the TS, potentially garbage
+      no_clients;
     {0, _} ->
       erlang:error(logic_error);
     {N, N} ->
-      % all clients blocked
-      deadlock;
+      % all clients blocked, potentially a deadlock
+      all_clients_blocked;
     _  ->
       none
   end.
