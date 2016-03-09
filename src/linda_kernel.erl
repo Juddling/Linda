@@ -37,8 +37,6 @@ remove_ts(Name) ->
   tuple_space:stop(Name).
 
 in(Name, Template) when is_tuple(Template) ->
-  io:format("in request received~n"),
-
 %%  case is_deadlock(Name) of
 %%    true ->
 %%      erlang:error(deadlock);
@@ -98,36 +96,38 @@ queue_add(Queue, [Head | Tail], DeadlockedTSs) ->
   end.
 
 %% asks a tuple space to check whether it is in deadlock / garbage
-deadlock_detection([], TSDeadlocked, _State) ->
-  % queue of tuple spaces to check is empty
-  % given that this function only recurses if there is potential deadlock,
-  % that means all tuple spaces in TSDeadlocked are in deadlock
-  io:format("deadlock found for the following tuple spaces~p~n", TSDeadlocked),
-  _ = lists:map(fun(TSName) -> gen_server:call({global, TSName}, deadlock) end, TSDeadlocked),
-  deadlock;
-deadlock_detection([TSName | TSQueueTail], TSDeadlocked, State) ->
+deadlock_detection([], TSDeadlocked, ClientAware, ClientsBlocked, _State) ->
+  IsDeadlock = ClientAware == ClientsBlocked,
+
+%%  io:format("is deadlock?~p~n", [IsDeadlock]),
+%%  io:format("Aware: ~p, Blocked: ~p~n", [sets:to_list(ClientAware), sets:to_list(ClientsBlocked)]),
+
+  case IsDeadlock of
+    true ->
+      io:format("deadlock found for the following tuple spaces: ~p~n", [TSDeadlocked]),
+      _ = lists:map(fun(TSName) -> gen_server:call({global, TSName}, deadlock) end, TSDeadlocked),
+      deadlock;
+    false ->
+      no_deadlock
+  end;
+deadlock_detection([TSName | TSQueueTail], TSDeadlocked, ClientAware, ClientsBlocked, State) ->
   % get the kernels state for this TS
   TSState = state_get_tuple_space(State, TSName),
+
+%%  io:format("adding clients from ~p~n", [TSName]),
+
   % all processes which are aware of this tuple space
-  ClientsAware = TSState#tuple_space.clients,
+  TSClients = sets:from_list(TSState#tuple_space.clients),
+  BlockedClientsList = gen_server:call({global, TSName}, blocked_clients),
 
-  DetectionState = gen_server:call({global, TSName}, {detect, ClientsAware}),
+%%  io:format("blocked clients ts name: ~p, clients: ~p~n", [TSName, BlockedClientsList]),
 
-  io:format("TS: ~p is in deadlock state: ~p~n", [TSName, DetectionState]),
+  TSClientsBlocked = sets:from_list(BlockedClientsList),
 
-  case DetectionState of
-    all_clients_blocked ->
-      % add tuple spaces that refer to this one to the queue of tuple spaces to check
-      NewQueue = queue_add(TSQueueTail, TSState#tuple_space.ts_referrers, TSDeadlocked),
+  NewQueue = queue_add(TSQueueTail, TSState#tuple_space.ts_referrers, TSDeadlocked),
 
-      deadlock_detection(NewQueue, [TSName | TSDeadlocked], State);
-    none ->
-      % in this case there is definitely no deadlock as there in an unblocked
-      % process that can write to this TS, and this TS is referred to by the previous
-      % TSs
-      no_deadlock
-  end.
-
+  deadlock_detection(NewQueue, [TSName|TSDeadlocked], sets:union(ClientAware,TSClients),
+    sets:union(ClientsBlocked,TSClientsBlocked), State).
 
 process_down(State = #state{refs = Refs}, Ref, Pid) ->
   StateClientRemoved = state_remove_client(State, Pid),
@@ -197,12 +197,12 @@ handle_call({deadlock_detection}, _From, State) ->
   TSNames = dict:fetch_keys(State#state.tuple_spaces),
   _ = lists:map(
     fun(TSName) ->
-      deadlock_detection([TSName], [], State)
+      deadlock_detection([TSName], [], sets:new(), sets:new(), State)
     end, TSNames),
   {reply, ok, State};
 
-handle_call({deadlock_detection, InitialTupleSpace}, _From, State) ->
-  {reply, deadlock_detection([InitialTupleSpace], [], State), State};
+%%handle_call({deadlock_detection, InitialTupleSpace}, _From, State) ->
+%%  {reply, deadlock_detection([InitialTupleSpace], [], State), State};
 
 %% update the kernel's knowledge, Referrer has a handle which points to TSName
 handle_call({add_referrer, TSName, Referrer}, _From, State) ->

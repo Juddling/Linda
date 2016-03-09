@@ -32,4 +32,4 @@ main() ->
 
   _ = linda_kernel:in(TS1, {integer}),
 
-  io:format("deadlock_cycle:main() finished").
+  io:format("deadlock_cycle:main() finished~n").

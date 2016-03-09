@@ -69,18 +69,24 @@ reply_deadlock([InReq | Tail]) ->
 reply_deadlock([]) ->
   ok.
 
+%% @doc takes the server state containing all blocked in requests and returns
+%% just the Pids of the blocked clients
 blocked_clients(InRequests) ->
-  lists:map(fun(Req) -> Req#in_request.client end, InRequests).
-
+  lists:map(
+    fun(Req) ->
+      % client is of form {pid(),Tag}
+      {Pid, _} = Req#in_request.client,
+      Pid
+    end, InRequests).
 
 handle_call(blocked_clients, _From, State = #state{in_requests = InReqs}) ->
+%%  io:format("blocked clients: ~p~n", [blocked_clients(InReqs)]),
   {reply, blocked_clients(InReqs), State};
 
 %% this will be a call from the kernel, which will happen after
 %% a process has died,
 handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs}) ->
   %% strip templates and extra info stored in an inrequest
-  io:format("checking status of tuple space..."),
   ClientsBlocked = blocked_clients(InReqs),
   {reply, deadlock:status(ClientsAware, ClientsBlocked), State};
 %% Kernel is informing this tuple space that it is deadlocked
@@ -99,6 +105,8 @@ handle_call({read, Template, IsDestructive}, From, State = #state{in_requests = 
   Result = template:fetch_tuple(Tuples, Template),
   if
     Result == false ->
+      io:format("in request from ~p~n", [From]),
+
       % if a matching tuple isn't found, store this in request
       InRequest = #in_request{client = From, template = Template, destructive = IsDestructive},
       {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
