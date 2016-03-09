@@ -73,6 +73,9 @@ blocked_clients(InRequests) ->
   lists:map(fun(Req) -> Req#in_request.client end, InRequests).
 
 
+handle_call(blocked_clients, _From, State = #state{in_requests = InReqs}) ->
+  {reply, blocked_clients(InReqs), State};
+
 %% this will be a call from the kernel, which will happen after
 %% a process has died,
 handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs}) ->

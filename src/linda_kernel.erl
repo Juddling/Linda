@@ -1,10 +1,10 @@
 -module(linda_kernel).
 
 -export([start/0, stop/0,
-  create_ts/2, remove_ts/1,
+  create_ts/0, remove_ts/1,
   in/2, out/2, rd/2,
   size/1, dump/1,
-  spawn/2, deadlock/1]).
+  spawn/2, spawn/4, deadlock/1, deadlock/0]).
 
 %% gen_server exports
 -export([init/1, handle_call/3, handle_cast/2, terminate/2, code_change/3, handle_info/2]).
@@ -26,9 +26,11 @@ stop() ->
   % we are aware of
   gen_server:stop(server_identifier()).
 
-create_ts(Name, From) ->
-  Pid = gen_server:call(server_identifier(), {create, Name, From}),
-  Pid.
+%% creates a new tuple space with a unique name, returns the new generated name
+create_ts() ->
+  Name = make_ref(),
+  _ = gen_server:call(server_identifier(), {create, Name, self()}),
+  Name.
 
 remove_ts(Name) ->
   %% do we allow TS to be stopped if other clients know about it?
@@ -68,8 +70,14 @@ dump(Name) ->
 spawn(TupleSpaceName, Fun) ->
   gen_server:call(server_identifier(), {spawn, Fun, TupleSpaceName}).
 
+spawn(TupleSpaceName, Module, Function, Args) ->
+  gen_server:call(server_identifier(), {spawn, {Module, Function, Args}, TupleSpaceName}).
+
 deadlock(InitialTS) ->
   gen_server:call(server_identifier(), {deadlock_detection, InitialTS}).
+
+deadlock() ->
+  gen_server:call(server_identifier(), {deadlock_detection}).
 
 %%spawn(Module, Function, List) ->
 %%  %% store pid for any handle in the list
@@ -86,7 +94,7 @@ queue_add(Queue, [Head | Tail], DeadlockedTSs) ->
     true ->
       queue_add(Queue, Tail, DeadlockedTSs);
     false ->
-      queue_add(lists:append(Head, Queue), Tail, DeadlockedTSs)
+      queue_add([Head | Queue], Tail, DeadlockedTSs)
   end.
 
 %% asks a tuple space to check whether it is in deadlock / garbage
@@ -94,6 +102,7 @@ deadlock_detection([], TSDeadlocked, _State) ->
   % queue of tuple spaces to check is empty
   % given that this function only recurses if there is potential deadlock,
   % that means all tuple spaces in TSDeadlocked are in deadlock
+  io:format("deadlock found for the following tuple spaces~p~n", TSDeadlocked),
   _ = lists:map(fun(TSName) -> gen_server:call({global, TSName}, deadlock) end, TSDeadlocked),
   deadlock;
 deadlock_detection([TSName | TSQueueTail], TSDeadlocked, State) ->
@@ -134,7 +143,7 @@ state_add_tuple_space(State = #state{tuple_spaces = TSs}, TSName, Client) ->
 %% add a new client
 state_add_client(State = #state{tuple_spaces = TSs}, TSName, Client) ->
   TSState = state_get_tuple_space(State, TSName),
-  NewTSState = TSState#tuple_space{clients = [Client|TSState#tuple_space.clients]},
+  NewTSState = TSState#tuple_space{clients = [Client | TSState#tuple_space.clients]},
   io:format("adding client, current ts state~p~n", [NewTSState]),
   State#state{tuple_spaces = dict:store(TSName, NewTSState, TSs)}.
 
@@ -151,11 +160,11 @@ state_remove_client(State = #state{tuple_spaces = TSs}, Client) ->
 
 state_add_referrer(State = #state{tuple_spaces = TSs}, TSName, Referrer) ->
   TSState = state_get_tuple_space(State, TSName),
-  NewTSState = TSState#tuple_space{ts_referrers = [Referrer|TSState#tuple_space.ts_referrers]},
+  NewTSState = TSState#tuple_space{ts_referrers = [Referrer | TSState#tuple_space.ts_referrers]},
   State#state{tuple_spaces = dict:store(TSName, NewTSState, TSs)}.
 
 state_get_tuple_space(State, TSName) ->
-  io:format("tuple space state requested, server state is : ~p~n", [State]),
+  % io:format("tuple space state requested, server state is : ~p~n", [State]),
   dict:fetch(TSName, State#state.tuple_spaces).
 
 %% gen_server functions
@@ -165,24 +174,39 @@ init(_Args) ->
 handle_call({create, Name, From}, _From, State) ->
   {ok, Pid} = tuple_space:start(Name),
   io:format("create call received from : ~p, and handled by ~p ~n", [From, self()]),
+  _ = erlang:monitor(process, From),
   {reply, Pid, state_add_tuple_space(State, Name, From)};
 
 %% erlang monitors return a reference, we store this reference
 %% in the linda kernel's state
 handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs}) ->
-  {Pid, Ref} = spawn_monitor(Fun),
+  {Pid, Ref} =
+    case Fun of
+      {Module, Function, Args} ->
+        spawn_monitor(Module, Function, Args);
+      Fun ->
+        spawn_monitor(Fun)
+    end,
   io:format("new process being made by process ~p~n", [self()]),
   io:format("new process ~p added to TS: ~p~n", [Pid, TSName]),
   % append to tuple space dict adds knowledge of which processes know about which TS
   NewState = state_add_client(State, TSName, Pid),
   {reply, Pid, NewState#state{refs = gb_sets:add(Ref, Refs)}};
 
+handle_call({deadlock_detection}, _From, State) ->
+  TSNames = dict:fetch_keys(State#state.tuple_spaces),
+  _ = lists:map(
+    fun(TSName) ->
+      deadlock_detection([TSName], [], State)
+    end, TSNames),
+  {reply, ok, State};
+
 handle_call({deadlock_detection, InitialTupleSpace}, _From, State) ->
   {reply, deadlock_detection([InitialTupleSpace], [], State), State};
 
 %% update the kernel's knowledge, Referrer has a handle which points to TSName
 handle_call({add_referrer, TSName, Referrer}, _From, State) ->
-  {noreply, state_add_referrer(State, TSName, Referrer)};
+  {reply, ok, state_add_referrer(State, TSName, Referrer)};
 
 handle_call(_, _From, State) ->
   io:format("unsupported synchronous request~n"),
