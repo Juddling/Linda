@@ -47,8 +47,10 @@ in(Name, Template) when is_tuple(Template) ->
   tuple_space:in(Name, Template).
 
 %% special case for if a tuple space handle is outed
-%%out(Name, TSHandle = {ts_handle, TSName}) ->
-%%  tuple_space:out(Name, TSHandle);
+out(Name, TSHandle = {ts_handle, TSName}) ->
+  tuple_space:out(Name, TSHandle),
+  % make sure the kernel knows Name refers to TSName
+  gen_server:call(server_identifier(), {add_referrer, TSName, Name});
 
 out(Name, Tuple) when is_tuple(Tuple) ->
   tuple_space:out(Name, Tuple).
@@ -102,6 +104,8 @@ deadlock_detection([TSName | TSQueueTail], TSDeadlocked, State) ->
 
   DetectionState = gen_server:call({global, TSName}, {detect, ClientsAware}),
 
+  io:format("TS: ~p is in deadlock state: ~p~n", [TSName, DetectionState]),
+
   case DetectionState of
     all_clients_blocked ->
       % add tuple spaces that refer to this one to the queue of tuple spaces to check
@@ -130,7 +134,7 @@ state_add_tuple_space(State = #state{tuple_spaces = TSs}, TSName, Client) ->
 %% add a new client
 state_add_client(State = #state{tuple_spaces = TSs}, TSName, Client) ->
   TSState = state_get_tuple_space(State, TSName),
-  NewTSState = TSState#tuple_space{clients = lists:append([Client], TSState#tuple_space.clients)},
+  NewTSState = TSState#tuple_space{clients = [Client|TSState#tuple_space.clients]},
   io:format("adding client, current ts state~p~n", [NewTSState]),
   State#state{tuple_spaces = dict:store(TSName, NewTSState, TSs)}.
 
@@ -147,10 +151,11 @@ state_remove_client(State = #state{tuple_spaces = TSs}, Client) ->
 
 state_add_referrer(State = #state{tuple_spaces = TSs}, TSName, Referrer) ->
   TSState = state_get_tuple_space(State, TSName),
-  NewTSState = TSState#tuple_space{ts_referrers = lists:append(Referrer, TSState#tuple_space.ts_referrers)},
+  NewTSState = TSState#tuple_space{ts_referrers = [Referrer|TSState#tuple_space.ts_referrers]},
   State#state{tuple_spaces = dict:store(TSName, NewTSState, TSs)}.
 
 state_get_tuple_space(State, TSName) ->
+  io:format("tuple space state requested, server state is : ~p~n", [State]),
   dict:fetch(TSName, State#state.tuple_spaces).
 
 %% gen_server functions
@@ -174,6 +179,10 @@ handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs}) ->
 
 handle_call({deadlock_detection, InitialTupleSpace}, _From, State) ->
   {reply, deadlock_detection([InitialTupleSpace], [], State), State};
+
+%% update the kernel's knowledge, Referrer has a handle which points to TSName
+handle_call({add_referrer, TSName, Referrer}, _From, State) ->
+  {noreply, state_add_referrer(State, TSName, Referrer)};
 
 handle_call(_, _From, State) ->
   io:format("unsupported synchronous request~n"),
