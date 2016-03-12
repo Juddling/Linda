@@ -14,6 +14,9 @@
 -record(state, {tuple_spaces, refs}).
 -record(tuple_space, {clients, ts_referrers}).
 
+% how often in milliseconds the kernel checks for deadlocks
+-define(DEADLOCK_INTERVAL, 1000).
+
 %% consider using gb_sets as the data structure, or orddict?
 
 server_identifier() -> {global, ?MODULE}.
@@ -128,8 +131,13 @@ process_down(State = #state{refs = Refs}, Ref, Pid) ->
   NewState = StateClientRemoved#state{refs = gb_sets:delete(Ref, Refs)},
   {noreply, NewState}.
 
-%% HELPER FUNCTIONS TO MANAGE KERNEL STATE
 
+schedule_deadlock_detection() ->
+  erlang:send_after(?DEADLOCK_INTERVAL, self(), {deadlock_detection}).
+
+%% --------------------
+%% Helper functions to manage the state of the kernel
+%% --------------------
 state_add_tuple_space(State = #state{tuple_spaces = TSs}, TSName, Client) ->
   TSState = #tuple_space{clients = [Client], ts_referrers = []},
   State#state{tuple_spaces = dict:store(TSName, TSState, TSs)}.
@@ -161,8 +169,11 @@ state_get_tuple_space(State, TSName) ->
   % io:format("tuple space state requested, server state is : ~p~n", [State]),
   dict:fetch(TSName, State#state.tuple_spaces).
 
+%% --------------------
 %% gen_server functions
+%% --------------------
 init(_Args) ->
+  schedule_deadlock_detection(),
   {ok, #state{tuple_spaces = dict:new(), refs = gb_sets:empty()}}.
 
 handle_call({create, Name, From}, _From, State) ->
@@ -187,13 +198,7 @@ handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs}) ->
   NewState = state_add_client(State, TSName, Pid),
   {reply, Pid, NewState#state{refs = gb_sets:add(Ref, Refs)}};
 
-handle_call({deadlock_detection}, _From, State) ->
-  TSNames = dict:fetch_keys(State#state.tuple_spaces),
-  _ = lists:map(
-    fun(TSName) ->
-      deadlock_detection([TSName], [], sets:new(), sets:new(), State)
-    end, TSNames),
-  {reply, ok, State};
+
 
 %%handle_call({deadlock_detection, InitialTupleSpace}, _From, State) ->
 %%  {reply, deadlock_detection([InitialTupleSpace], [], State), State};
@@ -224,5 +229,17 @@ handle_info({'DOWN', Ref, process, Pid, _}, State = #state{refs = Refs}) ->
     false ->
       {noreply, State}
   end;
+
+handle_info({deadlock_detection}, State) ->
+  io:format("checking for deadlock~n"),
+  schedule_deadlock_detection(),
+
+  TSNames = dict:fetch_keys(State#state.tuple_spaces),
+  _ = lists:map(
+    fun(TSName) ->
+      deadlock_detection([TSName], [], sets:new(), sets:new(), State)
+    end, TSNames),
+
+  {noreply, State};
 
 handle_info(_Info, _State) -> ok.
