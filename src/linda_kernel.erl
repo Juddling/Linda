@@ -77,12 +77,6 @@ deadlock(InitialTS) ->
 deadlock() ->
   gen_server:call(server_identifier(), {deadlock_detection}).
 
-%%spawn(Module, Function, List) ->
-%%  %% store pid for any handle in the list
-%%  {Pid, Ref} = spawn_monitor(Module, Function, List),
-%%  add_ref(Ref),
-%%  Pid.
-
 %% adds all referred TSs to the queue, unless they're already considered
 %% potential deadlocks (this eliminates cycles)
 queue_add(Queue, [], _) ->

@@ -83,13 +83,6 @@ handle_call(blocked_clients, _From, State = #state{in_requests = InReqs}) ->
 %%  io:format("blocked clients: ~p~n", [blocked_clients(InReqs)]),
   {reply, blocked_clients(InReqs), State};
 
-%% this will be a call from the kernel, which will happen after
-%% a process has died,
-handle_call({detect, ClientsAware}, _From, State = #state{in_requests = InReqs}) ->
-  %% strip templates and extra info stored in an inrequest
-  ClientsBlocked = blocked_clients(InReqs),
-  {reply, deadlock:status(ClientsAware, ClientsBlocked), State};
-%% Kernel is informing this tuple space that it is deadlocked
 handle_call(deadlock, _From, State) ->
   % inform all clients there is a deadlock
   reply_deadlock(State#state.in_requests),
