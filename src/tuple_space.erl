@@ -102,7 +102,7 @@ handle_call({read, Template, IsDestructive}, From, State = #state{in_requests = 
 
       % if a matching tuple isn't found, store this in request
       InRequest = #in_request{client = From, template = Template, destructive = IsDestructive},
-      {noreply, State#state{in_requests = InReqs ++ [InRequest]}};
+      {noreply, State#state{in_requests = [InReqs|InRequest]}};
     true ->
       case IsDestructive of
         true ->
@@ -126,13 +126,12 @@ handle_cast({out, Tuple}, State = #state{tuples = Tuples, in_requests = InReques
 
       NewTuples = case InRequest#in_request.destructive of
                     true -> Tuples;
-                    _ -> Tuples ++ [Tuple]
+                    _ -> [Tuple|Tuples]
                   end,
 
       {noreply, State#state{in_requests = lists:delete(InRequest, InRequests), tuples = NewTuples}};
     {nomatch} ->
-      % maybe shouldn't append to the end of the list for efficiency
-      {noreply, State#state{tuples = Tuples ++ [Tuple]}}
+      {noreply, State#state{tuples = [Tuple|Tuples]}}
   end;
 
 %% @doc DEBUG function to release blocked processes
