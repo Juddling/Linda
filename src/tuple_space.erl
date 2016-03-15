@@ -102,7 +102,7 @@ handle_call({read, Template, IsDestructive}, From, State = #state{in_requests = 
 
       % if a matching tuple isn't found, store this in request
       InRequest = #in_request{client = From, template = Template, destructive = IsDestructive},
-      {noreply, State#state{in_requests = [InReqs|InRequest]}};
+      {noreply, State#state{in_requests = [InRequest|InReqs]}};
     true ->
       case IsDestructive of
         true ->
