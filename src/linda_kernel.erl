@@ -92,16 +92,19 @@ queue_add(Queue, [Head | Tail], DeadlockedTSs) ->
       queue_add([Head | Queue], Tail, DeadlockedTSs)
   end.
 
+sets_equal(SetA, SetB) ->
+  sets:is_subset(SetA, SetB) andalso sets:is_subset(SetB, SetA).
+
 %% asks a tuple space to check whether it is in deadlock / garbage
 deadlock_detection([], TSDeadlocked, ClientAware, ClientsBlocked, _State) ->
-  IsDeadlock = ClientAware == ClientsBlocked,
+  IsDeadlock = sets_equal(ClientAware, ClientsBlocked),
 
 %%  io:format("is deadlock?~p~n", [IsDeadlock]),
 %%  io:format("Aware: ~p, Blocked: ~p~n", [sets:to_list(ClientAware), sets:to_list(ClientsBlocked)]),
 
   case IsDeadlock of
     true ->
-      io:format("deadlock found for the following tuple spaces: ~p~n", [TSDeadlocked]),
+%%      io:format("deadlock found for the following tuple spaces: ~p~n", [TSDeadlocked]),
       _ = lists:map(fun(TSName) -> gen_server:call({global, TSName}, deadlock) end, TSDeadlocked),
       deadlock;
     false ->
@@ -146,7 +149,7 @@ state_add_tuple_space(State = #state{tuple_spaces = TSs}, TSName, Client) ->
 state_add_client(State = #state{tuple_spaces = TSs}, TSName, Client) ->
   TSState = state_get_tuple_space(State, TSName),
   NewTSState = TSState#tuple_space{clients = [Client | TSState#tuple_space.clients]},
-  io:format("adding client, current ts state~p~n", [NewTSState]),
+%%  io:format("adding client, current ts state~p~n", [NewTSState]),
   State#state{tuple_spaces = dict:store(TSName, NewTSState, TSs)}.
 
 %% removes client from tuple space knowledge
@@ -192,8 +195,8 @@ handle_call({spawn, Fun, TSName}, _From, State = #state{refs = Refs}) ->
       Fun ->
         spawn_monitor(Fun)
     end,
-  io:format("new process being made by process ~p~n", [self()]),
-  io:format("new process ~p added to TS: ~p~n", [Pid, TSName]),
+%%  io:format("new process being made by process ~p~n", [self()]),
+%%  io:format("new process ~p added to TS: ~p~n", [Pid, TSName]),
   % append to tuple space dict adds knowledge of which processes know about which TS
   NewState = state_add_client(State, TSName, Pid),
   {reply, Pid, NewState#state{refs = gb_sets:add(Ref, Refs)}};
@@ -231,7 +234,7 @@ handle_info({'DOWN', Ref, process, Pid, _}, State = #state{refs = Refs}) ->
   end;
 
 handle_info({deadlock_detection}, State) ->
-  io:format("checking for deadlock~n"),
+%%  io:format("checking for deadlock~n"),
   schedule_deadlock_detection(),
 
   TSNames = dict:fetch_keys(State#state.tuple_spaces),
