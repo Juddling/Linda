@@ -1,11 +1,7 @@
 -module(template).
 -export([fetch_tuple/2, template_match/2]).
 
-%% PRIVATE FUNCTIONS
-
 % does the tuple conform to the supplied template
-
-
 template_match(Template, Tuple) when is_tuple(Template) and is_tuple(Tuple) ->
   template_match(Template, Tuple, 1).
 template_match(Template, Tuple, _) when tuple_size(Template) /= tuple_size(Tuple) ->
@@ -14,16 +10,29 @@ template_match(Template, Tuple, _) when tuple_size(Template) /= tuple_size(Tuple
 template_match(_, Tuple, Index) when Index > tuple_size(Tuple) ->
   true;
 template_match(Template, Tuple, Index) ->
-  case template_match_element(element(Index, Template), element(Index, Tuple)) of
+  TemplateElement = element(Index, Template),
+  TupleElement = element(Index, Tuple),
+
+  DoElementsMatch = case {is_tuple(TemplateElement),is_tuple(TupleElement)} of
+                      {true, true} ->
+                        % nested templates
+                        template_match(TemplateElement, TupleElement, 1);
+                      _ ->
+                        template_match_element(TemplateElement, TupleElement)
+                    end,
+
+  case DoElementsMatch of
     true ->
       template_match(Template, Tuple, Index + 1);
-    false ->
+    _ ->
       false
   end.
 
-% does the element in the template match the element in the actual tuple
-% we're using atoms to represent types
-% could add a special atom 'any' which would match any type
+%% @doc used to match elements within tuples and templates
+%% atoms are used to represent types
+%%
+%% int and bool could be added as alias type names
+%% special atom 'any' could match any value / type
 template_match_element(integer, Element) ->
   is_integer(Element);
 template_match_element(float, Element) ->
@@ -46,8 +55,8 @@ template_match_element(Value, Element) ->
   % strict equality operator
   Value =:= Element.
 
-% return a tuple from a bag that matches the supplied template, if no match is found
-% return false
+%% @doc return a tuple from a bag that matches the supplied template,
+%% if no match is found return false
 fetch_tuple([], _) ->
   false;
 fetch_tuple(Bag, Template) ->

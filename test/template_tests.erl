@@ -56,7 +56,7 @@ actual_value_test() ->
 
 nesting_test() ->
   % match nested on types
-  true = template:template_match({sum, {int, int, int}}, {sum, {4, 5, 6}}),
+  true = template:template_match({sum, {integer, integer, integer}}, {sum, {4, 5, 6}}),
 
   % match nested on values
   true = template:template_match({{1, 2, 3}, {4, 5, 6}}, {{1, 2, 3}, {4, 5, 6}}).
