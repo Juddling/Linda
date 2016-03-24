@@ -53,3 +53,10 @@ actual_value_test() ->
   true = template:template_match({5, boolean}, {5, false}),
   % should fail, second value isn't the same type
   false = template:template_match({4.4, 7}, {4.4, 7.0}).
+
+nesting_test() ->
+  % match nested on types
+  true = template:template_match({sum, {int, int, int}}, {sum, {4, 5, 6}}),
+
+  % match nested on values
+  true = template:template_match({{1, 2, 3}, {4, 5, 6}}, {{1, 2, 3}, {4, 5, 6}}).
