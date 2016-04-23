@@ -20,13 +20,13 @@ main() ->
   linda_kernel:start(),
 
   % create a tuple space
-  linda_kernel:create_ts(deadlock_ts, self()),
+  TS1 = linda_kernel:create_ts(),
 
   % spawn a process which is also aware of this tuple space
-  linda_kernel:spawn(deadlock_ts, fun() -> io:format("running new process...~n"), timer:sleep(500), io:format("anon short process done...~n") end),
+  linda_kernel:spawn(TS1, fun() -> io:format("running new process...~n"), timer:sleep(500), io:format("anon short process done...~n") end),
 
   % spawn a process which is also aware of this tuple space
-  linda_kernel:spawn(deadlock_ts, fun() ->
+  linda_kernel:spawn(TS1, fun() ->
     io:format("running new longer process...~n"),
     timer:sleep(5000),
     % linda_kernel:out(deadlock_ts, {3}),
@@ -34,5 +34,5 @@ main() ->
                                   end),
 
   % request an integer, this is a deadlock as soon as the other process dies
-  Result = linda_kernel:in(deadlock_ts, {integer}),
+  Result = linda_kernel:in(TS1, {integer}),
   io:format("RESPONSE RECEIVED: ~p~n", [Result]).
