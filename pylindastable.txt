@@ -1,0 +1,33 @@
+         1205 function calls in 0.690 seconds
+
+   Ordered by: standard name
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       40    0.000    0.000    0.000    0.000 subprocess.py:1107(_get_handles)
+       80    0.000    0.000    0.001    0.000 subprocess.py:1156(_set_cloexec_flag)
+       40    0.000    0.000    0.003    0.000 subprocess.py:1169(pipe_cloexec)
+       40    0.009    0.000    0.329    0.008 subprocess.py:1195(_execute_child)
+       40    0.000    0.000    0.000    0.000 subprocess.py:1338(_handle_exitstatus)
+       40    0.000    0.000    0.358    0.009 subprocess.py:1379(wait)
+       40    0.000    0.000    0.000    0.000 subprocess.py:458(_cleanup)
+       80    0.001    0.000    0.649    0.008 subprocess.py:473(_eintr_retry_call)
+       40    0.003    0.000    0.332    0.008 subprocess.py:650(__init__)
+      160    0.001    0.000    0.001    0.000 {fcntl.fcntl}
+       40    0.000    0.000    0.000    0.000 {gc.disable}
+       40    0.000    0.000    0.000    0.000 {gc.enable}
+       40    0.000    0.000    0.000    0.000 {gc.isenabled}
+       80    0.000    0.000    0.000    0.000 {isinstance}
+        2    0.000    0.000    0.000    0.000 {len}
+       40    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       40    0.000    0.000    0.000    0.000 {posix.WEXITSTATUS}
+       40    0.000    0.000    0.000    0.000 {posix.WIFEXITED}
+       40    0.000    0.000    0.000    0.000 {posix.WIFSIGNALED}
+       80    0.001    0.000    0.001    0.000 {posix.close}
+       40    0.024    0.001    0.024    0.001 {posix.fork}
+       40    0.001    0.000    0.001    0.000 {posix.pipe}
+       40    0.291    0.007    0.291    0.007 {posix.read}
+       40    0.357    0.009    0.357    0.009 {posix.waitpid}
+        2    0.000    0.000    0.000    0.000 {range}
+
+
